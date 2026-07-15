@@ -1,89 +1,112 @@
-`timescale 1ns/100ps
- 
+`define ASSERT_EQ(ONE, TWO, MSG)                                   \
+    begin                                                          \
+        if ((ONE) !== (TWO)) begin                                 \
+            $display("\t[FAILURE]:%s", (MSG));                     \
+            $display("received: %h, correct: %h", (ONE), (TWO));   \
+        end                                                        \
+        else begin                                                 \
+            $display("\t[SUCCESS]:%s", (MSG));                     \
+        end                                                        \
+    end #0
+
 module System_test;
- 
-    // Local Vars
-    reg clk   = 0;
-    reg rst   = 0;
-    reg en    = 0;
-   
-    // Configure RW instruction
-    reg rw    = 0;          // 0 = write, 1 = read
-    reg [6:0] addr = 0;
-    reg [7:0] w_data = 0;
-   
-    // Configure SPI Mode
-    reg cpol  = 0;
-    reg cpha  = 0;
- 
-    // Observed outputs
-    wire [7:0] master_r_data;
-    wire [7:0] slave_w_data;
- 
-    // VCD Dump
-    initial begin
-        $dumpfile("System_test.vcd");
-        $dumpvars;
-    end
- 
-    // System Module
-    System system(
-        .clk           (clk),
-        .rst           (rst),
-        .en            (en),
-        .rw            (rw),
-        .addr          (addr),
-        .w_data        (w_data),
-        .cpol          (cpol),
-        .cpha          (cpha),
-        .master_r_data (master_r_data),
-        .slave_w_data  (slave_w_data)
+
+    // ===== VARIABLES AND CONSTANTS =====
+    reg hclk = 0;
+    reg rst = 0;
+    reg en = 0;
+    
+    localparam ADDR = 7'd3;
+    localparam W_DATA = 32'h11111111;
+    localparam CLK_DIV_VAL = 4;
+    
+    reg       rw;
+    reg [3:0] len;
+
+    reg cpol;
+    reg cpha;
+    
+    reg [31:0] correct_r_data;
+    reg [31:0] correct_w_data;
+    
+    wire [31:0] received_r_data;
+    wire [31:0] received_w_data;
+    
+    // ===== INSTANTIATE DUT =====
+    System dut (
+        .hclk         (hclk),
+        .rst          (rst),
+        .en           (en),
+        .rw           (rw),
+        .addr         (ADDR),
+        .w_data       (W_DATA),
+        .transfer_len (len),
+        .clk_div_val  (CLK_DIV_VAL),
+        .cpol         (cpol),
+        .cpha         (cpha)
     );
- 
-    // Clock
-    always begin
-        #2.5 clk = ~clk;
-    end
-  
-    // Main Test Logic
+    
+    // System clock
+    always #0.25 hclk = ~hclk;
+    
+    // test values
+    assign received_r_data = dut.master.m_r_data;
+    assign received_w_data = {dut.slave.s_rfile.rfile[ADDR],
+                              dut.slave.s_rfile.rfile[ADDR + 1],
+                              dut.slave.s_rfile.rfile[ADDR + 2],
+                              dut.slave.s_rfile.rfile[ADDR + 3]};
+    
+    // ===== TESTS =====
+    task read (input [3:0] r_len);
+        begin
+            rw = 1;
+            len = r_len;
+            en = 1; #1; en = 0;
+            repeat ((r_len + 2) * 8 * CLK_DIV_VAL * 2) @(posedge hclk);
+            `ASSERT_EQ(received_r_data, correct_r_data, "READ");
+            #2;
+        end
+    endtask
+    
+    task write (input [3:0] w_len);
+        begin
+            rw = 0;
+            len = w_len;
+            en = 1; #1; en = 0;
+            repeat ((w_len + 2) * 8 * CLK_DIV_VAL * 2) @(posedge hclk);
+            `ASSERT_EQ(received_w_data, correct_w_data, "WRITE");
+            #2;
+        end
+    endtask
+    
+    // ===== TESTING =====
     initial begin
-        // Clock changes based on polarity
-        // CPOL == 0 means clock starts low
-        // CPOL == 1 means clock starts high
-        clk = cpol;
-   
-        // Reset the system
-        $display("\nResetting the system...");
-        #1; rst = 1; @(posedge clk);
-        #1; rst = 0; @(posedge clk);
- 
-        // Perform a WRITE transaction
-        $display("\nStarting WRITE transaction...");
-        rw = 0; // write
-        addr = 7'h3F;
-        w_data = 8'hC3;
-        #1; en = 1; @(posedge clk);
- 
-        // Let it run for a few cycles
-        repeat (16) @(posedge clk);
-        en = 0;
- 
-        $display("Slave latched data: %h", slave_w_data);
- 
-        // Perform a READ transaction
-        $display("\nStarting READ transaction...");
-        rw = 1; // read
-        addr = 7'b1010101;
-        #1; en = 1; @(posedge clk);
- 
-        // Let the transaction run
-        repeat (16) @(posedge clk);
-        en = 0;
- 
-        $display("Master received data: %h", master_r_data);
- 
-        #20;
+        
+        cpol = 0; cpha = 0;
+        $display("\nResetting system...");
+        #1; rst = 1; #1;rst = 0; #1;
+        
+        correct_r_data = 32'h00000003;
+        read(1);
+        
+        correct_r_data = 32'h00030405;
+        read(3);
+
+        correct_r_data = 32'h03040506;
+        read(4);
+
+        correct_w_data = 32'h11110506;
+        write(2);
+        
+        correct_w_data = 32'h11111106;
+        write(3);
+        
+        correct_w_data = 32'h11111111;
+        write(4);
+        
+        correct_w_data = 32'h11111111;
+        write(4);
+        
         $finish;
-    end
- 
+    end 
 endmodule
