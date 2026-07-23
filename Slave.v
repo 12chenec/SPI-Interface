@@ -13,20 +13,20 @@ module Slave (
     );
     
     // states
-    reg [2:0] s_state, s_next_state;
-    localparam IDLE =   3'd0;
-    localparam ADDR =   3'd1;
-    localparam READ =   3'd2;
-    localparam WRITE =  3'd3;
+    reg [1:0] s_state, s_next_state;
+    localparam IDLE =   2'd0;
+    localparam ADDR =   2'd1;
+    localparam READ =   2'd2;
+    localparam WRITE =  2'd3;
     
-    // signals from datapath
-    reg s_byte_done;
-    reg s_addr_valid;
-    reg s_rw;
-    // signals from controller
-    wire s_w_en;
-    wire s_miso_sel;
-    wire s_drive_shift_load;
+    // signals
+    reg        s_byte_done;
+    reg        s_addr_valid;
+    wire       s_sclk_in;
+    wire       s_w_en;
+    wire       s_miso_sel;
+    wire       s_drive_shift_load;
+    wire [7:0] s_r_data;
     
     // datapath registers
     reg [7:0] s_sample_shift;
@@ -35,7 +35,7 @@ module Slave (
     reg [6:0] s_r_addr;
     reg [6:0] s_transfer_addr;
     reg [6:0] s_w_addr;
-    wire [7:0] s_r_data;
+    reg       s_rw;
 
     // internal clock
     assign s_sclk_in = (s_cpol ^ s_cpha) ? ~s_sclk : s_sclk;
@@ -45,7 +45,7 @@ module Slave (
     localparam REG_DEPTH = 7'd127;
     // 128-entry 8-bit register file
     RegisterFile s_rfile (
-        .rf_clk    (s_sclk),
+        .rf_clk    (s_sclk_in),
         .rf_rst    (s_rst),
         
         .rf_r_addr (s_r_addr),
@@ -107,7 +107,13 @@ module Slave (
     
     // transfer_addr
     always @(negedge s_sclk_in or posedge s_rst or posedge s_cs) begin
-        if (s_rst || s_state == IDLE || s_cs) begin
+        if (s_rst) begin
+            s_transfer_addr <= 7'd0;
+        end
+        else if (s_cs) begin
+            s_transfer_addr <= 7'd0;
+        end
+        else if (s_state == IDLE) begin
             s_transfer_addr <= 7'd0;
         end
         else begin
@@ -122,7 +128,13 @@ module Slave (
     
     // w_addr
     always @(posedge s_sclk_in or posedge s_rst or posedge s_cs) begin
-        if (s_rst || s_state == IDLE || s_cs) begin
+        if (s_rst) begin
+            s_w_addr <= 7'd0;
+        end
+        else if (s_cs) begin
+            s_w_addr <= 7'd0;
+        end
+        else if (s_state == IDLE) begin
             s_w_addr <= 7'd0;
         end
         else if (s_state == ADDR && s_next_state == WRITE) begin
@@ -208,6 +220,7 @@ module Slave (
     
     // next_state logic
     always @(*) begin
+        s_next_state = IDLE;
         if (s_rst) begin
             s_next_state = IDLE;
         end
@@ -252,6 +265,9 @@ module Slave (
                     else begin
                         s_next_state = WRITE;
                     end
+                end
+                default: begin
+                    s_next_state = IDLE;
                 end
             endcase
         end
