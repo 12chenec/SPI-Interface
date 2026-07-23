@@ -18,7 +18,7 @@ module System_test;
     
     localparam ADDR = 7'd3;
     localparam W_DATA = 32'h11111111;
-    localparam CLK_DIV_VAL = 4;
+    localparam CLK_DIV_VAL = 3'd4;
     
     reg       rw;
     reg [3:0] len;
@@ -62,9 +62,9 @@ module System_test;
             rw = 1;
             len = r_len;
             en = 1; #1; en = 0;
-            repeat ((r_len + 2) * 8 * CLK_DIV_VAL * 2) @(posedge hclk);
+            repeat ((r_len + 1.5) * 8 * CLK_DIV_VAL * 2) @(posedge hclk);
             `ASSERT_EQ(received_r_data, correct_r_data, "READ");
-            #2;
+            #1;
         end
     endtask
     
@@ -73,9 +73,9 @@ module System_test;
             rw = 0;
             len = w_len;
             en = 1; #1; en = 0;
-            repeat ((w_len + 2) * 8 * CLK_DIV_VAL * 2) @(posedge hclk);
+            repeat ((w_len + 1.5) * 8 * CLK_DIV_VAL * 2) @(posedge hclk);
             `ASSERT_EQ(received_w_data, correct_w_data, "WRITE");
-            #2;
+            #1;
         end
     endtask
     
@@ -89,12 +89,18 @@ module System_test;
         correct_r_data = 32'h00000003;
         read(1);
         
+        correct_r_data = 32'h00000304;
+        read(2);
+        
         correct_r_data = 32'h00030405;
         read(3);
 
         correct_r_data = 32'h03040506;
         read(4);
-
+        
+        correct_w_data = 32'h11040506;
+        write(1);
+        
         correct_w_data = 32'h11110506;
         write(2);
         
@@ -103,10 +109,7 @@ module System_test;
         
         correct_w_data = 32'h11111111;
         write(4);
-        
-        correct_w_data = 32'h11111111;
-        write(4);
-        
+
         $finish;
     end 
 endmodule
