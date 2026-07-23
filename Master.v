@@ -24,20 +24,26 @@ module Master (
     );
     
     // states
-    reg [2:0] m_state, m_next_state;
-    localparam IDLE =   3'd0;
-    localparam ADDR =   3'd1;
-    localparam READ =   3'd2;
-    localparam WRITE =  3'd3;
+    reg [1:0] m_state, m_next_state;
+    localparam IDLE =   2'd0;
+    localparam ADDR =   2'd1;
+    localparam READ =   2'd2;
+    localparam WRITE =  2'd3;
     
     // signals from datapath
     // bit_cnt
     reg m_byte_done;
     // data_rem
     reg m_transfer_done;
+    // sclk_gen
+    wire m_falling_edge;
+    wire m_rising_edge;
+    wire m_latch_en;
+    wire m_cnt_en;
     
     // signals from controller
-    wire m_drive_shift_load;
+    wire m_drive_shift_addr;
+    wire m_drive_shift_write;
     
     // registers in datapath
     // rd_wr_shift
@@ -101,7 +107,7 @@ module Master (
         else if (m_en && !m_rw) begin
             m_w_data_rem <= m_w_data;
         end
-        else if (m_drive_shift_load) begin
+        else if (m_drive_shift_write) begin
             m_w_data_rem <= {8'd0, m_w_data_rem[31:8]};
         end
     end
@@ -121,7 +127,10 @@ module Master (
     // === bit_cnt ===
     // bit_cnt
     always @(posedge m_hclk or posedge m_rst) begin
-        if (m_rst || m_next_state == IDLE || m_state == IDLE) begin
+        if (m_rst) begin
+            m_bit_cnt <= {3'd0, ~m_cpha};
+        end
+        else if (m_next_state == IDLE || m_state == IDLE) begin
             m_bit_cnt <= {3'd0, ~m_cpha};
         end
         else if (m_byte_done && m_cnt_en) begin
@@ -162,7 +171,7 @@ module Master (
         if (m_rst) begin
             m_transfer_done = 0;
         end
-        else if ((m_state == READ || m_state == WRITE) && m_data_rem == 4'd0) begin
+        else if (m_data_rem == 4'd1 && m_byte_done && m_cnt_en) begin
             m_transfer_done = 1;
         end
         else begin
@@ -173,7 +182,10 @@ module Master (
     // === sclk_gen ===
     // clk_cnt
     always @(posedge m_hclk or posedge m_rst) begin
-        if (m_rst || m_state == IDLE || m_clk_cnt == m_clk_div_val) begin
+        if (m_rst) begin
+            m_clk_cnt <= 3'd1;
+        end
+        else if (m_state == IDLE || m_clk_cnt == m_clk_div_val) begin
             m_clk_cnt <= 3'd1;
         end
         else begin
@@ -193,7 +205,7 @@ module Master (
     
     // sclk
     always @(*) begin
-        if (m_rst || m_cs) begin
+        if (m_rst || m_state == IDLE || m_next_state == IDLE) begin
             m_sclk = m_cpol;
         end
         else begin
@@ -202,7 +214,7 @@ module Master (
     end
     
     // sclk_prev
-    always @(posedge m_hclk or m_rst) begin
+    always @(posedge m_hclk or posedge m_rst) begin
         if (m_rst) begin
             m_sclk_prev <= 1'b0;
         end
@@ -211,17 +223,17 @@ module Master (
         end
     end
     
-    assign m_falling_edge = ~(m_sclk_in ^ m_cpol) & m_sclk_prev;
-    assign m_rising_edge = (m_sclk_in ^ m_cpol) & ~m_sclk_prev;
+    assign m_falling_edge = ~(m_sclk_in ^ m_cpol) & m_sclk_prev & ~m_cs;
+    assign m_rising_edge = (m_sclk_in ^ m_cpol) & ~m_sclk_prev & ~m_cs;
     
     assign m_latch_en = (m_cpol ^ m_cpha) ? m_falling_edge : m_rising_edge;
     assign m_cnt_en = (m_cpol ^ m_cpha) ? m_rising_edge : m_falling_edge;
     
     // ===== CONTROLLER =====
     
-    // drive_shift_init
+    // drive_shift_addr
     assign m_drive_shift_addr = !m_cs && !m_cnt_en && m_bit_cnt == 3'd1 && m_state == ADDR;
-    // drive_shift_load
+    // drive_shift_write
     assign m_drive_shift_write = ((m_state == ADDR && !m_rw) || m_state == WRITE) && m_byte_done && m_cnt_en;
     
     // cs
@@ -246,6 +258,7 @@ module Master (
     
     // next state logic
     always @(*) begin
+        m_next_state = IDLE;
         if (m_rst) begin
             m_next_state = IDLE;
         end
@@ -271,7 +284,7 @@ module Master (
                     end
                 end
                 READ: begin
-                    if (m_transfer_done && m_cnt_en) begin
+                    if (m_transfer_done) begin
                         m_next_state = IDLE;
                     end
                     else begin
@@ -279,12 +292,15 @@ module Master (
                     end
                 end
                 WRITE: begin
-                    if (m_transfer_done && m_cnt_en) begin
+                    if (m_transfer_done) begin
                         m_next_state = IDLE;
                     end
                     else begin
                         m_next_state = WRITE;
                     end
+                end
+                default: begin
+                    m_next_state = IDLE;
                 end
             endcase
         end
