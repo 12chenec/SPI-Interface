@@ -30,7 +30,7 @@ module RegisterFile
     genvar i;
     generate
         for (i = 0; i < N_ELEMENTS; i = i + 1) begin: wport
-            always @(posedge rf_clk or posedge rf_rst) begin
+            always @(negedge rf_clk or posedge rf_rst) begin
                 if (rf_rst) begin
                     rfile[i] <= i;
                 end
